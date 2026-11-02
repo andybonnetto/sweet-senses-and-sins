@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#14111c">
+<title>3D Book Reader</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Cpath fill=%27%23e8b86a%27 d=%27M3 5c3-1 6-1 9 1 3-2 6-2 9-1v14c-3-1-6-1-9 1-3-2-6-2-9-1z%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header class="bar top ui">
+    <button id="btnThumbs" class="ib" title="Pages overview (T)" aria-label="Pages overview">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="7" rx="1"/><rect x="14" y="4" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    </button>
+    <h1 id="title">Loading…</h1>
+    <div class="grow"></div>
+    <button id="btnMode" class="ib" title="Single / double page" aria-label="Toggle single or double page">
+      <svg viewBox="0 0 24 24" class="i-double"><path d="M12 5v14M3 6c3-1 6-1 9 1 3-2 6-2 9-1v13c-3-1-6-1-9 1-3-2-6-2-9-1z"/></svg>
+      <svg viewBox="0 0 24 24" class="i-single"><path d="M6 3h12v18H6z"/></svg>
+    </button>
+    <button id="btnZoomOut" class="ib hide-xs" title="Zoom out (-)" aria-label="Zoom out"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M8 11h6M20 20l-4-4"/></svg></button>
+    <button id="btnZoomIn" class="ib" title="Zoom in (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M8 11h6M11 8v6M20 20l-4-4"/></svg></button>
+    <button id="btnFull" class="ib" title="Fullscreen (F)" aria-label="Fullscreen" hidden><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <button id="btnOpen" class="ib" title="Open another PDF" aria-label="Open PDF"><svg viewBox="0 0 24 24"><path d="M4 19V6a1 1 0 0 1 1-1h5l2 2h7a1 1 0 0 1 1 1v11z"/></svg></button>
+  </header>
+
+  <main id="stage">
+    <div id="zoomwrap">
+      <div id="scene">
+        <div id="book">
+          <div id="floor"></div>
+          <div id="edgeR" class="edge"></div>
+          <div id="edgeL" class="edge"></div>
+          <div id="shadowR" class="pshadow"></div>
+          <div id="shadowL" class="pshadow"></div>
+          <div id="spine"></div>
+          <div id="leaves"></div>
+        </div>
+      </div>
+    </div>
+    <button id="sideP" class="side ui" aria-label="Previous page"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button id="sideN" class="side right ui" aria-label="Next page"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+  </main>
+
+  <section id="thumbs" class="ui" aria-label="Pages"><div id="thumbList"></div></section>
+
+  <footer class="bar bottom ui">
+    <button id="btnFirst" class="ib hide-xs" title="First (Home)" aria-label="First page"><svg viewBox="0 0 24 24"><path d="M6 5v14M18 5l-7 7 7 7"/></svg></button>
+    <button id="btnPrev" class="ib" title="Previous (←)" aria-label="Previous page"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <div class="scrub">
+      <input id="slider" type="range" min="0" max="1" step="1" value="0" aria-label="Navigate pages">
+      <div id="label">—</div>
+    </div>
+    <button id="btnNext" class="ib" title="Next (→)" aria-label="Next page"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+    <button id="btnLast" class="ib hide-xs" title="Last (End)" aria-label="Last page"><svg viewBox="0 0 24 24"><path d="M18 5v14M6 5l7 7-7 7"/></svg></button>
+  </footer>
+
+  <div id="menu" class="ui" hidden>
+    <div class="menuTitle">Books in this folder</div>
+    <div id="menuList"></div>
+    <label class="menuBtn">Open a PDF from this device…<input id="file" type="file" accept="application/pdf,.pdf" hidden></label>
+  </div>
+
+  <div id="loader"><div class="spin"></div><div id="loadMsg">Opening book…</div><div class="progress"><i id="loadBar"></i></div></div>
+  <div id="drop"><div>Drop a PDF to read it as a book</div></div>
+  <div id="toast" role="status"></div>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
