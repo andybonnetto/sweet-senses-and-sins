@@ -78,6 +78,7 @@ async function loadSource(src, keepFace) {
   buildFaces();
   buildBook();
   buildThumbs();
+  computeLinks(doc);
   layout(true);
   let face = keepFace;
   if (face == null) {
@@ -119,6 +120,7 @@ function buildBook() {
       const s = k === 0 ? root : div('slab', parent);
       s.style.setProperty('--k', k); s.style.setProperty('--kb', N - 1 - k);
       const a = div('f a', s), b = div('f b', s);
+      a.dataset.leaf = b.dataset.leaf = i; a.dataset.side = 0; b.dataset.side = 1; a.dataset.col = k; b.dataset.col = N - 1 - k;
       shF.push(div('sh', a)); shB.push(div('sh', b));
       slabs.push(s); parent = s;
     }
@@ -569,6 +571,7 @@ el.stage.addEventListener('pointermove', e => {
     const r = el.stage.getBoundingClientRect();
     par.tx = ((e.clientX - r.left) / r.width - 0.5) * 2; par.ty = ((e.clientY - r.top) / r.height - 0.5) * 2; kick();
   }
+  if (e.pointerType === 'mouse' && !ptrs.size) el.stage.classList.toggle('link', !!linkAt(e.clientX, e.clientY));
   const pt = ptrs.get(e.pointerId); if (!pt) return;
   pt.x = e.clientX; pt.y = e.clientY;
   if (pinch && ptrs.size >= 2) {
@@ -607,6 +610,10 @@ const up = e => {
     endDrag(flick || (!back && pr > 0.4));
   } else if (g.kind === 'swipe') {
     if (Math.abs(dx) > 40) step(dx < 0 ? 1 : -1);
+  } else if (!g.moved && e.type === 'pointerup' && linkAt(e.clientX, e.clientY)) {
+    const url = linkAt(e.clientX, e.clientY);
+    toast('Opening link…', 1500);
+    window.open(url, '_blank', 'noopener');
   } else if (!g.moved && S.zoom <= 1.02 && e.type === 'pointerup') {
     // a tap: right half → next, left half → previous
     const pivot = S.mode === 'single' ? el.stage.getBoundingClientRect().left + el.stage.clientWidth / 2 : spineX();
@@ -650,6 +657,72 @@ el.stage.addEventListener('wheel', e => {
 }, { passive: false });
 ['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault()));
 document.addEventListener('contextmenu', e => e.preventDefault());
+
+/* ───────────────────────── clickable links (PDF link annotations + links.json rules) ───────────────────────── */
+// links.json: [{ "after": "Some heading", "url": "https://…" }] → the first image below that text becomes a link
+// (so a QR code stays clickable even if the pages move). Real hyperlinks inside the PDF work automatically too.
+const links = new Map();   // pdf page index → [{ r:[x0,y0,x1,y1], url, pw, ph }]  (rect in page points, top-left origin)
+const mulM = (a, b) => [a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3], a[2] * b[0] + a[3] * b[2], a[2] * b[1] + a[3] * b[3], a[4] * b[0] + a[5] * b[2] + b[4], a[4] * b[1] + a[5] * b[3] + b[5]];
+async function imageRects(page, vp) {
+  const { OPS } = pdfjsLib, ops = await page.getOperatorList();
+  let m = [1, 0, 0, 1, 0, 0]; const st = [], out = [];
+  ops.fnArray.forEach((fn, i) => {
+    const a = ops.argsArray[i];
+    if (fn === OPS.save) st.push(m);
+    else if (fn === OPS.restore) m = st.pop() || m;
+    else if (fn === OPS.transform) m = mulM(a, m);
+    else if (fn === OPS.paintImageXObject || fn === OPS.paintInlineImageXObject || fn === OPS.paintImageMaskXObject || fn === OPS.paintImageXObjectRepeat) {
+      const pts = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([u, v]) => vp.convertToViewportPoint(m[0] * u + m[2] * v + m[4], m[1] * u + m[3] * v + m[5]));
+      out.push([Math.min(...pts.map(q => q[0])), Math.min(...pts.map(q => q[1])), Math.max(...pts.map(q => q[0])), Math.max(...pts.map(q => q[1]))]);
+    }
+  });
+  return out;
+}
+async function computeLinks(doc) {
+  links.clear();
+  let rules = [];
+  try { const r = await fetch('links.json', { cache: 'no-store' }); if (r.ok) rules = await r.json(); } catch {}
+  const pending = (Array.isArray(rules) ? rules : []).filter(r => r && r.url && r.after).map(r => ({ ...r, done: false }));
+  for (let j = 0; j < doc.numPages; j++) {
+    if (doc !== S.doc) return;
+    try {
+      const page = await getPage(j), vp = page.getViewport({ scale: 1 });
+      const add = (r, url) => { if (!links.has(j)) links.set(j, []); links.get(j).push({ r, url, pw: vp.width, ph: vp.height }); };
+      for (const a of await page.getAnnotations()) {
+        const url = a.url || a.unsafeUrl;
+        if (a.subtype === 'Link' && url) { const q = vp.convertToViewportRectangle(a.rect); add([Math.min(q[0], q[2]), Math.min(q[1], q[3]), Math.max(q[0], q[2]), Math.max(q[1], q[3])], url); }
+      }
+      const todo = pending.filter(r => !r.done && (r.page == null || r.page - 1 === j));
+      if (todo.length) {
+        const tc = await page.getTextContent(); let imgs = null;
+        for (const rule of todo) {
+          const needle = rule.after.toLowerCase(), it = tc.items.find(t => t.str && t.str.toLowerCase().includes(needle));
+          if (!it) continue;
+          const y = vp.convertToViewportPoint(it.transform[4], it.transform[5])[1];
+          imgs = imgs || await imageRects(page, vp);
+          const cand = imgs.filter(r => r[1] >= y - 4).sort((a, b) => a[1] - b[1])[0];
+          if (cand) { add(cand, rule.url); rule.done = true; }
+        }
+      }
+    } catch (err) { console.warn('links', j, err); }
+  }
+}
+// which link (if any) is under a screen point? Works through the 3D transform by reading the strip under the cursor.
+function linkAt(x, y) {
+  if (!links.size || drag || anim.some(Boolean) || p.some(v => v > 0.001 && v < 0.999)) return null;
+  const e = document.elementFromPoint(x, y), f = e && e.closest && e.closest('.f');
+  if (!f || f.dataset.leaf == null) return null;
+  const i = +f.dataset.leaf, face = i * 2 + +f.dataset.side, fc = S.faces[face];
+  if (!fc || fc.page == null) return null;
+  const list = links.get(fc.page); if (!list) return null;
+  const r = f.getBoundingClientRect(), d = faceDims(face), sw = leaves[i].sw;
+  const fx = +f.dataset.col * sw + clamp((x - r.left) / r.width, 0, 1) * sw, fy = clamp((y - r.top) / r.height, 0, 1) * d.h;
+  for (const l of list) {
+    const sc = Math.min(d.w / l.pw, d.h / l.ph), px = (fx - (d.w - l.pw * sc) / 2) / sc, py = (fy - (d.h - l.ph * sc) / 2) / sc, pad = 6;
+    if (px >= l.r[0] - pad && px <= l.r[2] + pad && py >= l.r[1] - pad && py <= l.r[3] + pad) return l.url;
+  }
+  return null;
+}
 
 /* ───────────────────────── choosing / reloading PDFs ───────────────────────── */
 let available = [], current = null;
@@ -729,4 +802,4 @@ setInterval(async () => {
   await openByName(target);
 })();
 
-window.__book = { S, goPos, goFace, step, p, setZoom };
+window.__book = { S, goPos, goFace, step, p, setZoom, linkAt, links };

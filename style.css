@@ -43,6 +43,7 @@ body.single #btnMode .i-double{display:none}
 
 #stage{position:relative;flex:1;min-height:0;overflow:hidden;touch-action:none;cursor:grab}
 #stage.grabbing{cursor:grabbing}
+#stage.link{cursor:pointer}
 #zoomwrap{position:absolute;inset:0;will-change:transform}
 #scene{position:absolute;inset:0}
 #book{position:absolute;left:50%;top:50%;width:0;height:0;transform-style:preserve-3d;will-change:transform}
