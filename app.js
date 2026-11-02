@@ -11,7 +11,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
 };
 const STRIPS = 12;            // bend resolution of an interior page
-const OVERHANG = 1.035;       // hard cover is a bit larger than the paper block
+const OVERHANG = 1.06;        // hard cover is a bit larger than the paper block
 const PAPER = '#fbf8f0', ENDPAPER = '#e7dcc4';
 const LIGHT = [-0.3, 0.954];  // light direction (x,z) for page shading
 
@@ -64,7 +64,7 @@ async function loadSource(src, keepFace) {
   el.loader.classList.remove('done', 'empty');
   setLoad('Opening book…', 0.05);
   if (S.doc) { try { S.doc.destroy(); } catch {} }
-  texCache.forEach(t => URL.revokeObjectURL(t.url)); texCache.clear(); wanted.clear();
+  texCache.forEach(t => URL.revokeObjectURL(t.url)); texCache.clear(); wanted.clear(); tintCache.clear();
   pageCache.clear();
   const task = pdfjsLib.getDocument(src.data ? { data: src.data } : { url: src.url, isEvalSupported: false });
   task.onProgress = ({ loaded, total }) => total && setLoad('Opening book…', 0.05 + 0.5 * loaded / total);
@@ -121,6 +121,7 @@ function buildBook() {
       s.style.setProperty('--k', k); s.style.setProperty('--kb', N - 1 - k);
       const a = div('f a', s), b = div('f b', s);
       a.dataset.leaf = b.dataset.leaf = i; a.dataset.side = 0; b.dataset.side = 1; a.dataset.col = k; b.dataset.col = N - 1 - k;
+      if (cover) (i === 0 ? b : a).classList.add('inner');
       shF.push(div('sh', a)); shB.push(div('sh', b));
       slabs.push(s); parent = s;
     }
@@ -348,13 +349,16 @@ function requestTextures() {
   S.curFaceCenter = center;
   const span = 8, lo = Math.max(0, center - span), hi = Math.min(S.N - 1, center + span + 1);
   const keep = new Set();
+  // the covers and their endpapers frame every spread, so they are always kept loaded
+  const pinned = [0, 1, S.N - 2, S.N - 1];
+  for (const f of pinned) { keep.add(f); const t = texCache.get(f); if (!t || t.key !== texKey) wanted.add(f); }
   for (let f = lo; f <= hi; f++) {
     keep.add(f);
     const t = texCache.get(f);
     if (!t || t.key !== texKey) wanted.add(f);
   }
   // drop textures far away to keep memory bounded on phones
-  for (const [f, t] of texCache) if (!keep.has(f) && Math.abs(f - center) > 18) { paintFace(f, null); URL.revokeObjectURL(t.url); texCache.delete(f); }
+  for (const [f, t] of texCache) if (!keep.has(f) && !pinned.includes(f) && Math.abs(f - center) > 18) { paintFace(f, null); URL.revokeObjectURL(t.url); texCache.delete(f); }
   pumpTextures();
 }
 function pumpTextures() {
@@ -375,6 +379,19 @@ function pumpTextures() {
   }
 }
 
+const tintCache = new Map();
+async function coverTint(pageIdx) {   // average colour of a cover, darkened → colour of the board edge
+  if (tintCache.has(pageIdx)) return tintCache.get(pageIdx);
+  const page = await getPage(pageIdx), v = page.getViewport({ scale: 24 / page.getViewport({ scale: 1 }).width });
+  const c = document.createElement('canvas'); c.width = Math.ceil(v.width); c.height = Math.ceil(v.height);
+  const g = c.getContext('2d'); g.fillStyle = PAPER; g.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: g, viewport: v }).promise;
+  const o = document.createElement('canvas'); o.width = o.height = 1;
+  const og = o.getContext('2d'); og.drawImage(c, 0, 0, 1, 1);
+  const [r, gg, b] = og.getImageData(0, 0, 1, 1).data;
+  const col = `rgb(${r * .55 | 0},${gg * .55 | 0},${b * .55 | 0})`;
+  tintCache.set(pageIdx, col); return col;
+}
 async function makeTexture(f) {
   const face = S.faces[f], d = faceDims(f), q = texQ();
   let cw = Math.round(d.w * q), ch = Math.round(d.h * q);
@@ -383,6 +400,14 @@ async function makeTexture(f) {
   const g = cv.getContext('2d');
   g.fillStyle = face.kind === 'end' ? ENDPAPER : face.kind === 'board' ? '#2a2433' : PAPER;
   g.fillRect(0, 0, cw, ch);
+  if (face.kind === 'end' && (f === 1 || f === S.N - 2)) {
+    // pasted-down endpaper: leaves a rim of cover board (in the cover's own colour) around the paper block
+    const cp = S.faces[f === 1 ? 0 : S.N - 1].page;
+    g.fillStyle = cp != null ? await coverTint(cp) : '#2a2433'; g.fillRect(0, 0, cw, ch);
+    const mx = (S.Wc - S.W) / S.Wc * cw * 0.5, my = (S.Hc - S.H) / S.Hc * ch * 0.25;
+    g.fillStyle = ENDPAPER;
+    g.fillRect(f % 2 ? mx : 0, my, cw - mx, ch - 2 * my);
+  }
   if (face.page != null) {
     const page = await getPage(face.page), v1 = page.getViewport({ scale: 1 });
     const sc = Math.min(cw / v1.width, ch / v1.height), vp = page.getViewport({ scale: sc });
